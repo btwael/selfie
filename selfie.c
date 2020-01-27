@@ -3049,6 +3049,7 @@ void get_symbol() {
             } else if (character == '0') {
               condition = 1;
             }
+            // TODO: catch something like 0b112 and throw a lexical error, if we do nothing a syntax error will be thrown later  
           } else {
             if(is_character_digit()) {
               condition = 1;
