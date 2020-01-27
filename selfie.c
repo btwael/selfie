@@ -2173,6 +2173,8 @@ uint64_t atoi(char* s) {
   uint64_t i;
   uint64_t n;
   uint64_t c;
+  uint64_t base;
+  uint64_t condition;
 
   // the conversion of the ASCII string in s to its
   // numerical value n begins with the leftmost digit in s
@@ -2186,36 +2188,64 @@ uint64_t atoi(char* s) {
   c = load_character(s, i);
 
   // loop until s is terminated
+  base  = 10;
   while (c != 0) {
-    // the numerical value of ASCII-encoded decimal digits
-    // is offset by the ASCII code of '0' (which is 48)
-    c = c - '0';
-
-    if (c > 9) {
-      printf2("%s: cannot convert non-decimal number %s\n", selfie_name, s);
-
-      exit(EXITCODE_BADARGUMENTS);
+    if(i == 1) {
+      if(c == 'b') {
+        base = 2;
+      }
     }
 
-    // assert: s contains a decimal number
+    condition = 0;
+    if (base != 10) {
+      condition = 1;
+    }
+    if (condition == 1) {
+      if (i == 1) {
+        condition = 1;
+      } else {
+        condition = 0;
+      }
+    }
+    if(condition == 0) {
+      // the numerical value of ASCII-encoded decimal digits
+      // is offset by the ASCII code of '0' (which is 48)
+      c = c - '0';
 
-    // use base 10 but detect wrap around
-    if (n < UINT64_MAX / 10)
-      n = n * 10 + c;
-    else if (n == UINT64_MAX / 10)
-      if (c <= UINT64_MAX % 10)
-        n = n * 10 + c;
+      if (base == 10) {
+        if (c > 9) {
+          printf2("%s: cannot convert non-decimal number %s\n", selfie_name, s);
+
+          exit(EXITCODE_BADARGUMENTS);
+        }
+      } else if (base == 2) {
+        if (c > 1) {
+          printf2("%s: a binary number expected but found %s\n", selfie_name, s);
+
+          exit(EXITCODE_BADARGUMENTS);
+        }
+      }
+
+      // assert: s contains a decimal number
+
+      // use base 10 but detect wrap around
+      if (n < UINT64_MAX / base)
+        n = n * base + c;
+      else if (n == UINT64_MAX / base)
+        if (c <= UINT64_MAX % base)
+          n = n * base + c;
+        else {
+          // s contains a decimal number larger than UINT64_MAX
+          printf2("%s: cannot convert out-of-bound number %s\n", selfie_name, s);
+
+          exit(EXITCODE_BADARGUMENTS);
+        }
       else {
         // s contains a decimal number larger than UINT64_MAX
         printf2("%s: cannot convert out-of-bound number %s\n", selfie_name, s);
 
         exit(EXITCODE_BADARGUMENTS);
       }
-    else {
-      // s contains a decimal number larger than UINT64_MAX
-      printf2("%s: cannot convert out-of-bound number %s\n", selfie_name, s);
-
-      exit(EXITCODE_BADARGUMENTS);
     }
 
     // go to the next digit
@@ -2942,6 +2972,9 @@ uint64_t identifier_or_keyword() {
 
 void get_symbol() {
   uint64_t i;
+  uint64_t condition;
+  uint64_t onlyBin;
+  uint64_t allowB;
 
   // reset previously scanned symbol
   symbol = SYM_EOF;
@@ -2980,7 +3013,20 @@ void get_symbol() {
 
         i = 0;
 
-        while (is_character_digit()) {
+        onlyBin = 0;
+        allowB = 0;
+
+        if (is_character_digit()) {
+          condition = 1;
+        } else {
+          condition = 0;
+        }
+        while (condition == 1) {
+          if (i == 0) {
+            if (character == '0') {
+              allowB = 1;
+            }
+          }
           if (i >= MAX_INTEGER_LENGTH) {
             if (integer_is_signed)
               syntax_error_message("signed integer out of bound");
@@ -2995,6 +3041,27 @@ void get_symbol() {
           i = i + 1;
 
           get_character();
+
+          condition = 0;
+          if (onlyBin == 1) {
+            if (character == '1') {
+              condition = 1;
+            } else if (character == '0') {
+              condition = 1;
+            }
+          } else {
+            if(is_character_digit()) {
+              condition = 1;
+            }
+          }
+          if(i == 1) {
+            if (allowB == 1) {
+              if (character == 'b') {
+                condition = 1;
+                onlyBin = 1;
+              }
+            }
+          }
         }
 
         store_character(integer, i, 0); // null-terminated string
