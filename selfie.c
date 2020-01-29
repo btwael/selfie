@@ -1378,10 +1378,10 @@ uint64_t BEQ   = 11;
 uint64_t JAL   = 12;
 uint64_t JALR  = 13;
 uint64_t ECALL = 14;
-uint64_t SLL  = 15;
-uint64_t SRL  = 16;
-uint64_t SLLI   = 17;
-uint64_t SRLI   = 18;
+uint64_t SLL   = 15;
+uint64_t SRL   = 16;
+uint64_t SLLI  = 17;
+uint64_t SRLI  = 18;
 
 // exceptions
 
