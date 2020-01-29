@@ -2231,6 +2231,8 @@ uint64_t atoi(char* s) {
     if(i == 1) {
       if(c == 'b') {
         base = 2;
+      } else if(c == 'x') {
+        base = 16;
       }
     }
 
@@ -2248,7 +2250,17 @@ uint64_t atoi(char* s) {
     if(condition == 0) {
       // the numerical value of ASCII-encoded decimal digits
       // is offset by the ASCII code of '0' (which is 48)
-      c = c - '0';
+      if (base == 2) {
+        c = c - '0';
+      } else if (base == 10) {
+        c = c - '0';
+      } else if (base == 16) {
+        if ('A' <= c) {
+          c = c - 'A' + 10;
+        } else {
+          c = c - '0';
+        }
+      }
 
       if (base == 10) {
         if (c > 9) {
@@ -2259,6 +2271,12 @@ uint64_t atoi(char* s) {
       } else if (base == 2) {
         if (c > 1) {
           printf2("%s: a binary number expected but found %s\n", selfie_name, s);
+
+          exit(EXITCODE_BADARGUMENTS);
+        }
+      } else if (base == 16) {
+        if (c > 15) {
+          printf2("%s: a hexadecimal number expected but found %s\n", selfie_name, s);
 
           exit(EXITCODE_BADARGUMENTS);
         }
@@ -3012,7 +3030,9 @@ void get_symbol() {
   uint64_t i;
   uint64_t condition;
   uint64_t onlyBin;
+  uint64_t onlyHex;
   uint64_t allowB;
+  uint64_t allowX;
 
   // reset previously scanned symbol
   symbol = SYM_EOF;
@@ -3052,7 +3072,9 @@ void get_symbol() {
         i = 0;
 
         onlyBin = 0;
-        allowB = 0;
+        onlyHex = 0;
+        allowB  = 0;
+        allowX  = 0;
 
         if (is_character_digit()) {
           condition = 1;
@@ -3063,6 +3085,7 @@ void get_symbol() {
           if (i == 0) {
             if (character == '0') {
               allowB = 1;
+              allowX = 1;
             }
           }
           if (i >= MAX_INTEGER_LENGTH) {
@@ -3087,7 +3110,15 @@ void get_symbol() {
             } else if (character == '0') {
               condition = 1;
             }
-            // TODO: catch something like 0b112 and throw a lexical error, if we do nothing a syntax error will be thrown later  
+            // TODO: catch something like 0b112 and throw a lexical error, if we do nothing a syntax error will be thrown later 
+          } else if (onlyHex == 1) {
+            if (is_character_digit()) {
+              condition = 1;
+            } else if ('A' <= character) {
+              if (character <= 'F') {
+                condition = 1;
+              }
+            }
           } else {
             if(is_character_digit()) {
               condition = 1;
@@ -3098,6 +3129,12 @@ void get_symbol() {
               if (character == 'b') {
                 condition = 1;
                 onlyBin = 1;
+              }
+            }
+            if (allowX == 1) {
+              if (character == 'x') {
+                condition = 1;
+                onlyHex = 1;
               }
             }
           }
