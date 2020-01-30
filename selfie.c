@@ -410,6 +410,8 @@ uint64_t SYM_AMPERSAND = 33; // &
 uint64_t SYM_BAR       = 34; // |
 uint64_t SYM_TILDE     = 35; // ~
 
+uint64_t SYM_FOR       = 36; // for
+
 uint64_t* SYMBOLS; // strings representing symbols
 
 uint64_t MAX_IDENTIFIER_LENGTH = 64;  // maximum number of characters in an identifier
@@ -444,7 +446,7 @@ uint64_t source_fd   = 0; // file descriptor of open source file
 // ------------------------- INITIALIZATION ------------------------
 
 void init_scanner () {
-  SYMBOLS = smalloc((SYM_TILDE + 1) * SIZEOFUINT64STAR);
+  SYMBOLS = smalloc((SYM_FOR + 1) * SIZEOFUINT64STAR);
 
   *(SYMBOLS + SYM_INTEGER)      = (uint64_t) "integer";
   *(SYMBOLS + SYM_CHARACTER)    = (uint64_t) "character";
@@ -484,6 +486,8 @@ void init_scanner () {
   *(SYMBOLS + SYM_AMPERSAND) = (uint64_t) "&";
   *(SYMBOLS + SYM_BAR)       = (uint64_t) "|";
   *(SYMBOLS + SYM_TILDE)     = (uint64_t) "~";
+
+  *(SYMBOLS + SYM_FOR) = (uint64_t) "for";
 
   character = CHAR_EOF;
   symbol    = SYM_EOF;
@@ -651,6 +655,7 @@ uint64_t compile_simple_expression();
 uint64_t compile_bitwise_and_expression();
 uint64_t compile_expression();
 void     compile_while();
+void     compile_for();
 void     compile_if();
 void     compile_return();
 void     compile_statement();
@@ -659,6 +664,8 @@ void     compile_variable(uint64_t offset);
 uint64_t compile_initialization(uint64_t type);
 void     compile_procedure(char* procedure, uint64_t type);
 void     compile_cstar();
+
+void do_compile_statement(uint64_t ignoreSemicolon);
 
 // ------------------------ GLOBAL VARIABLES -----------------------
 
@@ -673,6 +680,7 @@ uint64_t return_type = 0; // return type of currently parsed procedure
 uint64_t number_of_calls       = 0;
 uint64_t number_of_assignments = 0;
 uint64_t number_of_while       = 0;
+uint64_t number_of_for         = 0;
 uint64_t number_of_if          = 0;
 uint64_t number_of_return      = 0;
 
@@ -3043,6 +3051,8 @@ uint64_t identifier_or_keyword() {
     return SYM_RETURN;
   else if (identifier_string_match(SYM_WHILE))
     return SYM_WHILE;
+  else if (identifier_string_match(SYM_FOR))
+    return SYM_FOR;
   else if (identifier_string_match(SYM_INT))
     // selfie bootstraps int to uint64_t!
     return SYM_UINT64;
@@ -3657,6 +3667,8 @@ uint64_t look_for_statement() {
   else if (symbol == SYM_IDENTIFIER)
     return 0;
   else if (symbol == SYM_WHILE)
+    return 0;
+  else if (symbol == SYM_FOR)
     return 0;
   else if (symbol == SYM_IF)
     return 0;
@@ -4631,6 +4643,105 @@ void compile_while() {
   number_of_while = number_of_while + 1;
 }
 
+void compile_for() {
+  uint64_t jump_back_to_for_condition;
+  uint64_t jump_back_to_increment;
+  uint64_t branch_forward_to_for_body;
+  uint64_t branch_forward_to_end;
+
+  // assert: allocated_temporaries == 0
+
+  branch_forward_to_end = 0;
+
+  if (symbol == SYM_FOR) {
+    get_symbol();
+
+    if (symbol == SYM_LPARENTHESIS) {
+      get_symbol();
+
+      compile_statement();
+
+      //if (symbol == SYM_SEMICOLON) {
+        //get_symbol();
+
+        jump_back_to_for_condition = binary_length;
+
+        compile_expression();
+
+        branch_forward_to_end = binary_length;
+
+        emit_beq(current_temporary(), REG_ZR, 0);
+
+        branch_forward_to_for_body = binary_length;
+
+        emit_jal(REG_ZR, 0);
+
+        if(symbol == SYM_SEMICOLON) {
+          get_symbol();
+
+          jump_back_to_increment = binary_length;
+
+          do_compile_statement(1);
+
+          emit_jal(REG_ZR, jump_back_to_for_condition - binary_length);
+
+          if (branch_forward_to_for_body != 0)
+            fixup_relative_JFormat(branch_forward_to_for_body, binary_length);
+
+          if (symbol == SYM_RPARENTHESIS) {
+            get_symbol();
+
+            if (symbol == SYM_LBRACE) {
+              get_symbol();
+
+              while (is_not_rbrace_or_eof())
+                compile_statement();
+
+              if (symbol == SYM_RBRACE)
+                get_symbol();
+              else {
+                syntax_error_symbol(SYM_RBRACE);
+
+                exit(EXITCODE_PARSERERROR);
+              }
+            } else {
+              compile_statement();
+            }
+
+            emit_jal(REG_ZR, jump_back_to_increment - binary_length);
+
+            if (branch_forward_to_end != 0)
+              fixup_relative_BFormat(branch_forward_to_end);
+
+            tfree(1);
+          } else {
+            syntax_error_symbol(SYM_RPARENTHESIS);
+          }
+        } else {
+          syntax_error_symbol(SYM_SEMICOLON);
+        }
+
+      //} else {
+      //  syntax_error_symbol(SYM_SEMICOLON);
+      //}
+
+    } else {
+      syntax_error_symbol(SYM_LPARENTHESIS);
+    }
+  } else {
+    syntax_error_symbol(SYM_WHILE);
+  }
+
+  if (branch_forward_to_end != 0)
+    // first instruction after loop body will be generated here
+    // now we have the address for the conditional branch from above
+    fixup_relative_BFormat(branch_forward_to_end);
+
+  // assert: allocated_temporaries == 0
+
+  number_of_for = number_of_for + 1;
+}
+
 void compile_if() {
   uint64_t branch_forward_to_else_or_end;
   uint64_t jump_forward_to_end;
@@ -4758,7 +4869,7 @@ void compile_return() {
   number_of_return = number_of_return + 1;
 }
 
-void compile_statement() {
+void do_compile_statement(uint64_t ignoreSemicolon) {
   uint64_t ltype;
   uint64_t rtype;
   char* variable_or_procedure_name;
@@ -4809,10 +4920,12 @@ void compile_statement() {
         tfree(1);
       }
 
-      if (symbol == SYM_SEMICOLON)
-        get_symbol();
-      else
-        syntax_error_symbol(SYM_SEMICOLON);
+      if (ignoreSemicolon == 0) {
+        if (symbol == SYM_SEMICOLON)
+          get_symbol();
+        else
+          syntax_error_symbol(SYM_SEMICOLON);
+      }
 
     // "*" "(" expression ")"
     } else if (symbol == SYM_LPARENTHESIS) {
@@ -4846,10 +4959,12 @@ void compile_statement() {
           tfree(1);
         }
 
-        if (symbol == SYM_SEMICOLON)
-          get_symbol();
-        else
-          syntax_error_symbol(SYM_SEMICOLON);
+        if (ignoreSemicolon == 0) {
+          if (symbol == SYM_SEMICOLON)
+            get_symbol();
+          else
+            syntax_error_symbol(SYM_SEMICOLON);
+        }
       } else
         syntax_error_symbol(SYM_RPARENTHESIS);
     } else
@@ -4871,10 +4986,12 @@ void compile_statement() {
       // for missing return expressions
       emit_addi(REG_A0, REG_ZR, 0);
 
-      if (symbol == SYM_SEMICOLON)
-        get_symbol();
-      else
-        syntax_error_symbol(SYM_SEMICOLON);
+      if (ignoreSemicolon == 0) {
+        if (symbol == SYM_SEMICOLON)
+          get_symbol();
+        else
+          syntax_error_symbol(SYM_SEMICOLON);
+      }
 
     // identifier = expression
     } else if (symbol == SYM_ASSIGN) {
@@ -4905,16 +5022,22 @@ void compile_statement() {
 
       number_of_assignments = number_of_assignments + 1;
 
-      if (symbol == SYM_SEMICOLON)
-        get_symbol();
-      else
-        syntax_error_symbol(SYM_SEMICOLON);
+      if (ignoreSemicolon == 0) {
+        if (symbol == SYM_SEMICOLON)
+          get_symbol();
+        else
+          syntax_error_symbol(SYM_SEMICOLON);
+      }
     } else
       syntax_error_unexpected();
   }
   // while statement?
   else if (symbol == SYM_WHILE) {
     compile_while();
+  }
+  // for statement?
+  else if (symbol == SYM_FOR) {
+    compile_for();
   }
   // if statement?
   else if (symbol == SYM_IF) {
@@ -4929,6 +5052,10 @@ void compile_statement() {
     else
       syntax_error_symbol(SYM_SEMICOLON);
   }
+}
+
+void compile_statement() {
+  do_compile_statement(0);
 }
 
 uint64_t compile_type() {
@@ -5511,12 +5638,15 @@ void selfie_compile() {
         (char*) number_of_procedures,
         (char*) number_of_strings);
 
-      printf6("%s: %d calls, %d assignments, %d while, %d if, %d return\n", selfie_name,
+      printf5("%s: %d calls, %d assignments %d if, %d return\n", selfie_name,
         (char*) number_of_calls,
         (char*) number_of_assignments,
-        (char*) number_of_while,
         (char*) number_of_if,
         (char*) number_of_return);
+
+      printf3("%s: %d while, %d for\n", selfie_name,
+        (char*) number_of_while,
+        (char*) number_of_for);
     }
   }
 
@@ -5912,7 +6042,7 @@ void print_instruction_counters() {
   print(", ");
   print_instruction_counter(ic, ic_srli, "srli");
   print(", ");
-  print_instruction_counter(ic, ic_srli, "xori");
+  print_instruction_counter(ic, ic_xori, "xori");
   println();
 
   printf1("%s: memory:  ", selfie_name);
